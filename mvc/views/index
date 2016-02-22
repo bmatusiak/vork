@@ -1,0 +1,9 @@
+<?php
+get::$title = 'Hello World!';
+echo $html->h1('Hello World! Vork installation is successful!');
+
+echo $html->p('The "view" for the content on this page is at: /mvc/views/index');
+
+echo $html->p('The "controller" for this page can be edited at: /mvc/controllers/index');
+
+echo $html->h2('Full documentation is at ' . $html->link('http://www.Vork.us/docs'));

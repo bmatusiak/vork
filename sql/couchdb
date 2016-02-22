@@ -1,0 +1,99 @@
+<?php
+/**
+ * CouchDB helper class
+ */
+class vorkCouchdb {
+    /**
+     * Configurable connection-related settings
+     */
+    public $host = 'localhost', $port = 5984, $user = null, $pass = null, $DB_NAME = null;
+
+    /**
+     * Cache of last header and object recieved
+     * @var array
+     */
+    public $header = null, $object = null;
+
+    /**
+     * Name used as the array-key upon an attempt to insert a string/int instead of an array or object
+     */
+    const SCALAR = 'scalar';
+
+    /**
+     * Base class to communicate with CouchDB
+     *
+     * @param string $method This is the method of communication (get, post, etc.)
+     * @param string $cmd The command transmitted to CouchDB
+     * @param string $data Data to be inserted into CouchDB
+     * @return object
+     */
+    public function couchdb($method, $cmd, $data = null) {
+        if (substr($cmd, 0, 1) != '/') {
+            $cmd = '/' . $this->DB_NAME . '/' . $cmd;
+        }
+        $socket = fsockopen($this->host, $this->port, $errno, $errstr);
+        if (!$socket && DEBUG_MODE) {
+            debug::log($errno . ': ' . $errstr, 'error');
+            return false;
+        }
+        $request = $method . ' ' . $cmd . " HTTP/1.0\r\nHost: " . $this->host . "\r\n";
+        if ($this->user) {
+            $request .= 'Authorization: Basic ' . base64_encode($this->user . ':' . $this->pass) . "\r\n";
+        }
+        if ($data) {
+            $request .= 'Content-Length: ' . strlen($data) . "\r\n\r\n" . $data;
+        }
+        $request .= "\r\n";
+        fwrite($socket, $request);
+
+        $response = '';
+        while (!feof($socket)) {
+            $response .= fgets($socket);
+        }
+        fclose($socket);
+        unset($socket);
+
+        list($this->header, $this->object) = explode("\r\n\r\n", $response);
+        return $this->object;
+    }
+
+    /**
+     * Wrapper around the couchdb method that aids in ease-of-use
+     *
+     * @param string $method This is the method of communication (get, post, etc.)
+     * @param string $cmd The command transmitted to CouchDB
+     * @param string $data Data to be inserted into CouchDB - can be a scalar string, JSON-string or array
+     * @return mixed Returns an array or string
+     */
+    public function send($method, $cmd, $data = null) {
+        if ($data) {
+            if (is_array($data)) {
+                $data = json_encode($data);
+            } else {
+                $data = trim($data);
+                if (substr($data, 0, 1) != '{' || substr($data, -1) != '}') {
+                    $data = json_encode(array(self::SCALAR => $data));
+                }
+            }
+        }
+        $body = $this->couchdb($method, $cmd, $data);
+        $return = json_decode($body);
+        if (is_object($return) && property_exists($return, self::SCALAR) && count(get_object_vars($return)) == 3) {
+            return $return->{self::SCALAR};
+        }
+        return $return;
+    }
+
+    /**
+     * Enables use of $couchdb->get(), $couchdb->delete(), etc.
+     *
+     * @param string $name
+     * @param array $args
+     * @return mixed
+     */
+    public function __call($name, array $args) {
+        if (in_array($name, array('get', 'put', 'post', 'delete', 'head'))) {
+            return $this->send(strtoupper($name), $args[0], (isset($args[1]) ? $args[1] : null));
+        }
+    }
+}

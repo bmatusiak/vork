@@ -1,0 +1,194 @@
+<?php
+/**
+ * Account-related functionality
+ */
+class accountComponent {
+    /**
+     * Keys to set/unset when logging in/out
+     *
+     * @var array
+     */
+    protected $_sessionKeys = array('_id', 'name');
+
+    /**
+     * Sets the session keys upon login
+     *
+     * @param array $row This should contain at least the keys defined in $this->_sessionKeys
+     */
+    protected function _setLoginSession(array $row) {
+        foreach ($this->_sessionKeys as $key) {
+            $_SESSION[$key] = $row[$key];
+        }
+    }
+
+    /**
+     * Attempt to log a user in
+     *
+     * @param string $email
+     * @param string $pass
+     * @return mixed
+     */
+    public function login($email, $pass) {
+        $row = get::model('account')->validateLogin(trim($email), trim($pass));
+        if ($row) {
+            $this->_setLoginSession($row);
+            if (!isset($row['initiallogin']) || !$row['initiallogin']) {
+                get::model('account')->setInitialLogin($row['_id']);
+            }
+        }
+        return $row;
+    }
+
+    /**
+     * Listens for login submission and handles it if found
+     *
+     * @param string $location Optional, if omitted user will return to the same page upon successful login
+     * @return array
+     */
+    public function checkLogin($location = null) {
+        if (isset($_POST['login_email']) && isset($_POST['login_pass'])){ //login
+            if (isset($_POST['action']) && $_POST['action'] == 'forgotPassword') {
+                $this->forgotPassword();
+            } else if (!$this->login($_POST['login_email'], $_POST['login_pass'])) {
+                $_POST['errors']['login_email'] = 'Incorrect email or password';
+            } else {
+                $redirect = true;
+            }
+        } else if (isset($_POST['logout'])) { //logout
+            $this->logout();
+            $redirect = true;
+        } else if (isset($_POST['signup_name'])) { //signup
+            if (!$this->validateRequired('simple')) {
+                $id = $this->addUser($_POST['signup_email'], array('name' => $_POST['signup_name']));
+                return array('signedup' => true);
+            }
+        } else if (isset($_GET['forgotPassword'])) { //forgotPassword
+            return $this->forgotPassword();
+        }
+        if (isset($redirect)) {
+            load::redirect(!$location ? get::url() : $location); //dump the post data
+        }
+    }
+
+    /**
+     * Log out a user
+     */
+    public function logout() {
+        foreach ($this->_sessionKeys as $key) {
+           unset($_SESSION[$key]);
+        }
+    }
+
+    /**
+     * Send password reminder
+     *
+     * @return array
+     */
+    public function forgotPassword() {
+        if (isset($_POST['login_email']) && $_POST['login_email']) {
+            $_POST = array_map('trim', $_POST);
+            if (filter_var($_POST['login_email'], FILTER_VALIDATE_EMAIL)) {
+                $pass = get::model('account')->retrievePass($_POST['login_email']);
+                if ($pass) {
+                    $body = get::element('emails/retrievePass', array('email' => $_POST['login_email'],
+                                                                      'pass' => $pass));
+                    $args = array('from' => 'no-reply@' . get::$config->SITE_DOMAIN,
+                                  'fromName' => get::$config->SITE_NAME, 'body' => $body,
+                                  'to' => $_POST['login_email'], 'html' => true,
+                                  'subject' => get::$config->SITE_NAME . ' account password');
+                    get::component('email')->sendEmail($args);
+                } //no-else, no need to provide confirmation to invalid users
+                $alert = 'Your password has been emailed to you';
+            } else {
+                $alert = 'Email does not appear to be typed correctly';
+            }
+        } else {
+            $alert = 'Email is required to retrieve your password';
+        }
+        $_POST['errors']['login'] = $alert;
+    }
+
+    /**
+     * Verify typical required user data has been entered and is valid
+     *
+     * Required fields are fullname, email, address1, city, tel, country
+     * and if country is US then state and zip are also required
+     *
+     * @param string $type "simple" (name+email only) or "full" validation of fields
+     * @return array Array of errors returned; an empty array indicates no errors
+     */
+    public function validateRequired($type) {
+        $_POST = array_map('trim', $_POST);
+        if (!filter_var($_POST['signup_email'], FILTER_VALIDATE_EMAIL)) {
+            $error['signup_email'] = 'Email does not appear to be valid';
+        } else if (get::model('account')->accountExists($_POST['signup_email'])) {
+            $error['signup_email'] = 'There already is an account with that email';
+        }
+        if ($type == 'simple') {
+            if (strlen($_POST['signup_name']) < 3) {
+                $error['signup_name'] = 'Name is required';
+            }
+        } else {
+            $passLen = strlen($_POST['pass']);
+            if ($passLen < 4) {
+                $error['pass'] = 'Password is too short';
+            } else if ($passLen > 16) {
+                $error['pass'] = 'Password is too long';
+            } else if ($_POST['pass'] != $_POST['passconfirm']) {
+                $error['pass'] = 'Password and confirmation do not match, please retype both fields';
+            }
+            $requiredFields = array('signup_name' => 'Name', 'address1' => 'Address', 'city' => 'City');
+            foreach ($requiredFields as $key => $label) {
+                if (strlen($_POST[$key]) < 3) {
+                    $error[$key] = $label . ' is required';
+                }
+            }
+            if (strlen(preg_replace('/\D/', '', $_POST['tel'])) < 6) {
+                $error['tel'] = 'Telephone is required';
+            }
+            if ($_POST['country'] == 'US') {
+                if (!$_POST['state']) {
+                    $error['state'] = 'State is required for those in the USA';
+                }
+                $_POST['zip'] = preg_replace('/\D/', '', $_POST['zip']);
+                $zipLen = strlen($_POST['zip']);
+                if ($zipLen != 5 && $zipLen != 9) {
+                    $error['zip'] = 'Zip code is required for those in the USA';
+                } else if ($zipLen == 9) {
+                    $_POST['zip'] = substr($_POST['zip'], 0, 5) . '-' . substr($_POST['zip'], 5);
+                }
+            }
+        }
+        if (isset($error)) {
+            return $_POST['errors'] = $error;
+        }
+        return array();
+    }
+
+    public function generatePassword() {
+        //only letters and numbers that are easy to visually differentiate
+        $chars = array('b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'm', 'n',
+                       'p', 'q', 'r', 's', 't', 'v', 'w', 'x', 'y', 'z');
+        $alphanums = array_merge($chars, range(2, 9));
+        $charset = array_rand($alphanums, rand(5, 8));
+        shuffle($charset);
+        foreach ($charset as $char) {
+            $pass[] = $alphanums[$char];
+        }
+        return implode($pass);
+    }
+
+    public function addUser($email, array $cols = array()) {
+        $cols['signupTs'] = time();
+        $cols['signupDate'] = date('c');
+        $pass = $this->generatePassword();
+        $body = get::element('emails/newAccount', compact('email', 'pass'));
+        $args = array('from' => 'no-reply@' . get::$config->SITE_DOMAIN,
+                      'body' => $body,
+                      'to' => $email,
+                      'html' => true,
+                      'subject' => 'Welcome to ' . get::$config->SITE_NAME);
+        get::component('email')->sendEmail($args);
+        return get::model('account')->addUser($email, $pass, $cols);
+    }
+}

@@ -1,0 +1,14 @@
+<?php
+if (!isset($_SESSION['_id'])) {
+    if (!isset($signedup)) {
+        $args = array();
+        if (isset($loginAction)) {
+            $args['loginAction'] = $loginAction;
+        }
+        load::element('account/' . (!isset($_GET['signup']) ? 'login' : 'signup'), $args);
+    } else {
+        load::element('account/signedup');
+    }
+} else {
+    load::element('account/logout');
+}

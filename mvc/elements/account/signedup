@@ -1,0 +1,2 @@
+<?php
+echo $html->h2('Signed up successfully, check your email for login instructions', array('id' => 'signupform'));

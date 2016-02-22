@@ -1,0 +1,83 @@
+<?php
+/**
+ * Validates user-entered data
+ */
+class validatorComponent {
+    /**
+     * Verifies a hex color (used in HTML/CSS) contains exactly six base-16 digits
+     *
+     * @param string $data
+     * @return boolean
+     */
+    public function isValidHexColor($data) {
+        return (bool) preg_match('/[0-9ABCDEF]{6}/', $data);
+    }
+
+    /**
+     * Verifies a URL is valid
+     *
+     * @param string $data
+     * @return boolean
+     */
+    public function isValidURL($data) {
+        return (bool) preg_match('#(https?|ftp)://(www\.)?(\S+\.)+[^\.\s]{1,5}(:\d+)?([\\/]\S+)*?$#i', $data);
+    }
+
+    /**
+     * Verifies an email is valid
+     *
+     * @param string $data
+     * @return boolean
+     */
+    public function isValidEmail($data) {
+        $datalen = strlen($data);
+        return ($datalen > 5 && $datalen <= 60 && preg_match('/([\w!#$%"*+\/=?`{}|~^-]+)@(([\w-]+\.)+[\w-]{2,})/', $data));
+    }
+
+    /**
+     * Verifies password is or is not valid
+     *
+     * @param string $pass
+     * @return mixed A string containing an error message (casts to bool-true) indicates an invalid pass
+     *               Bool-false indicates a valid password
+     */
+    public function isInvalidPassword($pass) {
+        $passlen = strlen($pass);
+        if ($passlen < 6) {
+            $error = 'Password is too short';
+        }
+        if ($passlen > 16) {
+            $error = 'Password is too long';
+        }
+        if (strpos($pass, ' ') !== false) {
+            $error = 'Passwords cannot contain spaces';
+        }
+        if (!isset($error)) {
+            $passwithoutnumbers = str_replace(range(0,9), '', $pass);
+            if ($passwithoutnumbers == $pass || $passwithoutnumbers == '') {
+                $error = 'Passwords must contain a mix of numbers and letters';
+            }
+        }
+        return (isset($error) ? $error : false);
+    }
+
+    /**
+     * Verifies telephone numbers
+     *
+     * @param mixed $data Phone number in numberic-format - alpha-chars like (443)300-VORK will be ignored (& then fail)
+     * @param string $country Country code, currently US is the only validated number, other countries are only checked
+     *                        for having a minimal number of numeric characters
+     * @return boolean
+     */
+    public function isValidTelephone($data, $country = 'US') {
+        if ($country == 'US') {
+            $return = (bool) preg_match('/\b([2-9]\d{2})[.\s -]?(([2-9]\d{2})[.\s -]?(\d{4}))\b/', $data);
+            if ($return && substr($data, 3, 3) == '555') {
+                $return = false;
+            }
+        } else {
+            $return = (strlen(get::component('filter')->getNumbersOnly($data)) > 6);
+        }
+        return $return;
+    }
+}

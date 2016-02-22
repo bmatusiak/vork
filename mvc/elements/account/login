@@ -1,0 +1,35 @@
+<?php
+if (!isset($loginAction)) {
+    $loginAction = get::url(array('ssl' => true));
+}
+echo $form->open(array('action' => $loginAction, 'id' => 'loginform'));
+
+$url = get::url(array('get' => true));
+$url .= (strpos($url, '?') !== false ? '&' : '?') . 'signup=true';
+echo $html->div($html->link($url, 'New user sign up'));
+
+if (isset($_POST['errors']['login'])) {
+    echo $form->getErrorMessageContainer('email', $_POST['errors']['login']);
+}
+$args = array('name' => 'login_email', 'label' => 'Email', 'id' => 'loginemail', 'addBreak' => false);
+echo $html->div($form->input($args));
+$args = array('name' => 'login_pass', 'label' => 'Pass', 'id' => 'loginpass', 'addBreak' => false);
+echo $html->div($form->password($args));
+
+$forgotPassLink = $html->link('javascript: forgotpass();', 'Forgot your password?', array('id' => 'forgotpassword'));
+echo '<div id="forgotpass"></div>';
+echo $html->jsInline($html->jsTools(true) . 'dom("forgotpass").innerHTML = "' . addslashes($forgotPassLink) . '";
+function forgotpass() {
+    var loginform = dom("loginform");
+    var forgotPass = document.createElement("input");
+    forgotPass.setAttribute("type", "hidden");
+    forgotPass.setAttribute("name", "action");
+    forgotPass.setAttribute("value", "forgotPassword");
+    loginform.appendChild(forgotPass);
+    loginform.submit();
+    return false;
+}');
+
+echo $form->submit('Login');
+
+echo $form->close();

@@ -1,0 +1,20 @@
+<?php
+if (!isset($loginAction)) {
+    $loginAction = get::url(array('ssl' => true, 'get' => true));
+} else if (strpos($loginAction, 'signup=true') === false) {
+    $loginAction .= (strpos($loginAction, '?') !== false ? '&' : '?') . 'signup=true';
+}
+echo $form->open(array('action' => $loginAction, 'id' => 'signupform'));
+
+$url = str_replace(array('?signup=true', '&signup=true'), '', get::url(array('get' => true)));
+echo $html->div($html->link(($url ? $url : '/'), 'Existing user log in'));
+
+if (isset($_POST['errors']['signup'])) {
+    echo $form->getErrorMessageContainer('email', $_POST['errors']['signup']);
+}
+$args = array('name' => 'signup_name', 'label' => 'Name', 'id' => 'signupname', 'addBreak' => false);
+echo $html->div($form->input($args));
+$args = array('name' => 'signup_email', 'label' => 'Email', 'id' => 'signupemail', 'addBreak' => false);
+echo $html->div($form->input($args));
+echo $form->submit('Sign up');
+echo $form->close();

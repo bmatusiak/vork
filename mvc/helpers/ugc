@@ -1,0 +1,295 @@
+<?php
+/**
+ * UGC (User Generated Contend) helper class used to componentize Vork tools in a manner that is safe for public access
+ */
+class ugcHelper {
+    /**
+     * Tags that are allowed within UGC - anything else will be htmlencoded - FYI: all tag-properties get stripped out
+     * @var array
+     */
+    public $allowedTags = array('hr', 'em', 'strong', 'tt', 'dl', 'dt', 'dd');
+
+    /**
+     * Display text with vorkCode-embedded
+     *
+     * @param string $content
+     * @return string
+     */
+    public function text($content) {
+        if ($content !== '') {
+            $allowedTags = implode('|', $this->allowedTags);
+            $content = get::htmlentities($content);
+            $content = preg_replace('/&lt;(\/?(' . $allowedTags . ')(\s.*)?\/?)&gt;/isU', '<$2>', $content);
+            $content = preg_replace('/(\r?\n){2,}/', PHP_EOL . PHP_EOL, $content); //compact excessive line breaks
+            $content = preg_replace('/(\r?\n){2}=/', PHP_EOL . '=', $content); //reduce line break preceding header
+            $content = $this->customTags($content);
+            $content = $this->tagShortcuts($content);
+            $content = $this->autolink($content);
+            $content = get::component('filter')->cleanHtml($content);
+        }
+        return $content;
+    }
+
+    /**
+     * Support method for autolink emails
+     *
+     * @param array $array
+     * @return string
+     */
+    protected function _email(array $array) {
+        return (isset($array[1]) ? get::helper('html')->email($array[1]) : current($array));
+    }
+
+    /**
+     * Support method for autolink URLs
+     *
+     * @param array $array
+     * @return string
+     */
+    protected function _autolink(array $array) {
+        if (!isset($array[1])) {
+            return current($array);
+        }
+        $url = $array[1];
+        if (!isset($array[2])) { // protocol is not prefixed
+            $url = get::helper('html')->link('http://' . $url, $url);
+        } else {
+            $url = get::helper('html')->link($url);
+        }
+        return $url;
+    }
+
+    /**
+     * Automatically converts URLs to links and emails to spam-resistant email-links
+     *
+     * @param string $str
+     * @return string
+     */
+    public function autoLink($str) {
+        $end = '[^<>\(\)\s\"\']';
+        $emailRegex = '/(?:[^mailto:])\b(([\w\.!#$%"*+\/=?`{}|~^-]+)@((?:[-\w]+\.)+[A-Za-z]{2,}))\b/';
+        //$urlRegex = '/(?<=[^"\'\/])\b(((https?|ftp):\/\/|www\.)([-\w]+\.)+[A-Za-z]{2,}(:\d+)?([\\\\\/]\S'
+        //. $end . '+)*[\\\\\/]?(\?\S*' . $end . ')?)\b/i';
+        $urlRegex = '/(?:[^\s])?(?<=[^"\'\/])\b((?:(https?|ftp):\/\/|www\.)'
+                  . '(?:[-\w]+\.)+[A-Za-z]{2,}(?:\:\d+)?(?:[\\\\\/]\S'
+                  . $end . '+)*[\\\\\/]?(\?\S*' . $end . ')?)\b/is';
+        $str = preg_replace_callback($emailRegex, array($this, '_email'), $str);
+        return preg_replace_callback($urlRegex, array($this, '_autolink'), $str);
+    }
+
+    /**
+     * Returns a color-coded code block for code custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _code($matches) {
+        //PHP-container-match regex will only catch short-open tags that are well-formatted (sloppy-code may get missed)
+        $str = preg_replace('/\<\?([\r\n\s])/', '<?php$1', html_entity_decode($matches[3]));
+        return str_replace(array("\r", "\n"), '', get::helper('html')->phpcode($str, true));
+    }
+
+    /**
+     * Returns a link for link custom-tags
+     * This is only needed for local links since autolink handles external links automatically
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _link($matches) {
+        $link = trim($matches[2] ? $matches[2] : $matches[3]);
+        return get::helper('html')->link($link, $matches[3]);
+    }
+
+    /**
+     * Returns a wiki-specific link for wiki custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _wiki($matches) {
+        $url = '/' . mvc::$controller . '/';
+        $wikipage = trim($matches[2] ? $matches[2] : $matches[3]);
+        if (strtolower($wikipage) != 'index') {
+            $url .= $wikipage;
+        }
+        return get::helper('html')->link($url, $matches[3]);
+    }
+
+    /**
+     * Returns an image for image custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _image($matches) {
+        return ($matches[2] ? get::helper('html')->img(array('src' => $matches[2], 'alt' => trim($matches[3]))) : '');
+    }
+
+    /**
+     * Strips out content found in comment custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _comment($matches) {
+        return '';
+    }
+
+    /**
+     * Returns a YouTube video for youtube custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _youtube($matches) {
+        return get::helper('tools')->youtube(array('id' => trim($matches[2] ? $matches[2] : $matches[3])));
+    }
+
+    /**
+     * Returns a QR code for qr custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _qr($matches) {
+        return get::helper('tools')->qrCode(trim($matches[3]));
+    }
+
+    /**
+     * Returns a Google map for map custom-tags
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _map($matches) {
+        return get::helper('tools')->googleMap(trim($matches[3]));
+    }
+
+    /**
+     * Switchboard action-methods on matches found by $this->customTags()
+     *
+     * @param array $matches
+     * @return string
+     */
+    protected function _customTags($matches) {
+        return $this->{'_' . $matches[1]}($matches);
+    }
+
+    /**
+     * Valid custom tags
+     * @var array
+     */
+    protected $_customTags = array('code', 'link', 'image', 'wiki', 'comment', 'youtube', 'qr', 'map');
+
+    /**
+     * Parses out custom tags
+     *
+     * @param string $str
+     * @return string
+     */
+    public function customTags($str) {
+        $regex = '/&lt;(' . implode('|', $this->_customTags) . ')(?:\s+(.*))?&gt;(.*)&lt;\/\1&gt;/siU';
+        return preg_replace_callback($regex, array($this, '_customTags'), $str);
+    }
+
+    /**
+     * Parses shortcut-tags and does a safe version of nl2br()
+     *
+     * @param string $str
+     * @return string
+     */
+    public function tagShortcuts($str) {
+        for ($x = 4; $x >= 1; $x--) {
+            $str = preg_replace('/^={' . $x . '}(.+)/m', '<h' . $x . '>$1</h' . $x . '>', $str);
+        }
+        $lines = explode("\n", $str);
+        $listTypes = array('-' => 'ul', '#' => 'ol');
+        $regex = '/^(\s*)([' . implode(array_keys($listTypes)) . '])/';
+        foreach ($lines as $lineNum => $line) {
+            $match = array();
+            preg_match($regex, $line, $match);
+            if ($match) {
+                $lists[$lineNum] = array('depth' => strlen($match[1]), 'listtype' => $listTypes[$match[2]]);
+            }
+        }
+
+        $autobreak = true;
+        $lines[-1] = ''; //removes the need for look-behind isset-checking
+        foreach ($lines as $lineNum => $line) {
+            $prefix = '';
+            if (isset($lists[$lineNum])) {
+                if (!isset($lists[$lineNum - 1])) { //no list open
+                    $prefix .= '<' . $lists[$lineNum]['listtype'] . '><li>';
+                } else {
+                    $depthChange = ($lists[$lineNum]['depth'] - $lists[$lineNum - 1]['depth']);
+                    if ($depthChange < 0) { //reducing depth
+                        $prefix .= str_repeat('</li></' . $lists[$lineNum]['listtype'] . '>', abs($depthChange));
+                    }
+                    if ($lists[$lineNum - 1]['listtype'] != $lists[$lineNum]['listtype']) { //switch between list types
+                        $prefix .= '</' . $lists[$lineNum - 1]['listtype'] . '><' . $lists[$lineNum]['listtype'] . '>';
+                    }
+                    if ($depthChange > 0) { //increasing nesting depth
+                        $prefix .= str_repeat('<' . $lists[$lineNum]['listtype'] . '><li>', $depthChange);
+                    }
+                    $prefix .= '</li><li>';
+                }
+
+                $lines[$lineNum] = $prefix . substr($lines[$lineNum], ($lists[$lineNum]['depth'] + 1));
+            } else {
+                if (isset($lists[$lineNum - 1])) {
+                    $closeList = '</li></' . $lists[$lineNum - 1]['listtype'] . '>';
+                    $lines[$lineNum] = str_repeat($closeList, ($lists[$lineNum - 1]['depth'] + 1)) . $lines[$lineNum];
+                }
+                if ($scriptPosition = strpos($line, '<script type="text/javascript">')) {
+                    $autobreak = false;
+                }
+                if (!$autobreak && $scriptEndPosition = strrpos($line, '</script>')) { //not a 100% bulletproof solution
+                    $autobreak = (!isset($scriptPosition) || $scriptPosition < $scriptEndPosition);
+                }
+                if ($autobreak) {
+                    if (!preg_match('/<(\/h\d|hr\s*\/?)>/i', substr($lines[$lineNum], -5))) {
+                        $lines[$lineNum] .= '<br />';
+                    }
+                } else if ($scriptPosition) {
+                    unset($scriptPosition);
+                }
+            }
+        }
+        return implode(PHP_EOL, $lines);
+    }
+
+    /**
+     * UGC formatting guide
+     * @return string
+     */
+    public function guide() {
+        return '<h4>Automatic Links</h4>Email addresses will be linked automatically (using spam-resistant links)<br />'
+             . 'URLs that begin with http://, https://, ftp:// and www. will be automatically linked.<br /><br />'
+             . '<h4 stye="display: inline;">Tag shortcuts</h4>'
+             . 'Tag shortcut characters must appear at the beginning of a line<br />'
+             . '<span>=</span> Header 1<br />'
+             . '<span>==</span> Header 2<br />'
+             . '<span>===</span> Header 3<br />'
+             . '<span>====</span> Header 4<br />'
+             . '<span>-</span> Unordered List Item<br />'
+             . '<span>&nbsp; -</span> Unordered list, nested one-level - precede lists with spaces to nest lists<br />'
+             . '<span>&nbsp; &nbsp; -</span> Nested two-levels deep<br />'
+             . '<span>#</span> Ordered List Item (nesting works the same as an unordered list)<br /><br />'
+             . '<h4>HTML tags enabled:</h4>'
+             . '<span>&lt;' . implode('&gt; &lt;', $this->allowedTags) . '&gt;</span><br /><br />'
+             . '<h4>Custom tags enabled:</h4>'
+             . '<span>&lt;code&gt;</span>$anyCode = "can go here";<span>&lt;/code&gt;</span><br />'
+             . '<span>&lt;link&gt;</span>/some/page/url<span>&lt;/link&gt;</span><br />'
+             . '<span>&lt;link /another/page&gt;</span>Linked Content Here<span>&lt;/link&gt;</span><br />'
+             . '<span>&lt;wiki&gt;</span>yourWikiPage<span>&lt;/wiki&gt;</span><br />'
+             . '<span>&lt;wiki someWikiPage&gt;</span>Wiki-Linked Content Here<span>&lt;/wiki&gt;</span><br />'
+             . '<span>&lt;image /images/myphoto.jpg&gt;</span>Alt-Text Here (optional)<span>&lt;/image&gt;</span><br />'
+             . '<span>&lt;map&gt;</span>101 Park Ave., New York, NY<span>&lt;/map&gt;</span> (Address or Geolocation'
+             . ' to be mapped)<br />'
+             . '<span>&lt;youtube&gt;</span>QpRUC42ab2M<span>&lt;/youtube&gt;</span> (URL or ID of a YouTube video)<br />'
+             . '<span>&lt;qr&gt;</span>Text to be encoded in a QR code<span>&lt;/qr&gt;</span><br />'
+             . '<span>&lt;comment&gt;</span>Content visible only to those who edit this wiki page<span>&lt;/comment&gt;'
+             . '</span><br />';
+    }
+}
